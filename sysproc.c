@@ -89,3 +89,12 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+//return hello from  the kernel for our custom hello message
+int
+sys_hello(void)
+{
+  cprintf("Hello from the kernel!\n");
+  return 0;
+}

@@ -1,3 +1,20 @@
+Environment
+- OS: Windows Subsystem for Linux 2 (WSL2), Ubuntu
+      Kernel: Linux DESKTOP-IGT6P4O 6.18.33.2-microsoft-standard-WSL2
+- Compiler: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+- Emulator: QEMU emulator version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3.2)
+- xv6 source: github.com/mit-pdos/xv6-public (x86)
+- Built with: make
+- Run with: make qemu-nox
+
+
+
+-----------------------------------------------------------------------------------------
+
+
+
+
+
 NOTE: we have stopped maintaining the x86 version of xv6, and switched
 our efforts to the RISC-V version
 (https://github.com/mit-pdos/xv6-riscv.git)

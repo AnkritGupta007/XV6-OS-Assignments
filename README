@@ -7,6 +7,22 @@ Environment
 - Built with: make
 - Run with: make qemu-nox
 
+Group members: Ankrit Gupta (solo submission)
+
+Resources used
+
+- Claude (Anthropic AI assistant): Used to understand xv6's system
+  program architecture — how user programs link against xv6's own C
+  library instead of standard libc, how a syscall travels from a user
+  program through usys.S and syscall.c into the kernel, and how the
+  Makefile's UPROGS/EXTRA variables package and link user programs
+  onto the xv6 disk image. 
+
+- xv6 source files (echo.c, getpid/sys_getpid, sysproc.c, ls.c):
+  Read as reference for argv handling, kernel printing conventions
+  (cprintf vs printf), and existing syscall/command patterns before
+  writing my own implementations.
+
 
 
 -----------------------------------------------------------------------------------------

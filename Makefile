@@ -184,9 +184,12 @@ UPROGS=\
 	_zombie\
         _hello\
 	_sleep\
+	_sort\
 
-fs.img: mkfs README $(UPROGS)
-	./mkfs fs.img README $(UPROGS)
+TESTFILES=os611.txt nums.txt
+
+fs.img: mkfs README $(TESTFILES) $(UPROGS)
+	./mkfs fs.img README $(TESTFILES) $(UPROGS)
 
 -include *.d
 

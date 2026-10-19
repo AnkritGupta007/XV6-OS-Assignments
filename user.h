@@ -24,6 +24,7 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int hello(void);
+int ticks_running(int);
 
 // ulib.c
 int stat(const char*, struct stat*);

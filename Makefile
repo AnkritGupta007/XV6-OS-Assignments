@@ -185,6 +185,7 @@ UPROGS=\
         _hello\
 	_sleep\
 	_sort\
+	_tickstest\
 
 TESTFILES=os611.txt nums.txt
 

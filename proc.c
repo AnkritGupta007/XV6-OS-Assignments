@@ -88,6 +88,7 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  p->run_ticks = 0;
 
   release(&ptable.lock);
 
@@ -497,6 +498,25 @@ kill(int pid)
 }
 
 //PAGEBREAK: 36
+// Return the number of timer ticks process pid has spent RUNNING,
+// or -1 if no process with that pid is in the process table.
+int
+procticks(int pid)
+{
+  struct proc *p;
+  int t = -1;
+
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->state != UNUSED && p->pid == pid){
+      t = p->run_ticks;
+      break;
+    }
+  }
+  release(&ptable.lock);
+  return t;
+}
+
 // Print a process listing to console.  For debugging.
 // Runs when user types ^P on console.
 // No lock to avoid wedging a stuck machine further.

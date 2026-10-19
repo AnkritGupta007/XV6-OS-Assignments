@@ -20,6 +20,18 @@ extern void trapret(void);
 
 static void wakeup1(void *chan);
 
+// Predicted job lengths for the SJF scheduler come from a simple linear
+// congruential generator, so they vary from process to process but are
+// repeatable from boot to boot.  Callers hold ptable.lock.
+static uint sjf_seed = SJF_SEED;
+
+static int
+next_job_len(void)
+{
+  sjf_seed = sjf_seed * SJF_LCG_A + SJF_LCG_C;
+  return SJF_MINLEN + (sjf_seed >> 16) % (SJF_MAXLEN - SJF_MINLEN + 1);
+}
+
 void
 pinit(void)
 {
@@ -89,6 +101,7 @@ found:
   p->state = EMBRYO;
   p->pid = nextpid++;
   p->run_ticks = 0;
+  p->job_len = next_job_len();
 
   release(&ptable.lock);
 
@@ -324,6 +337,9 @@ void
 scheduler(void)
 {
   struct proc *p;
+#ifdef SJF
+  struct proc *best;
+#endif
   struct cpu *c = mycpu();
   c->proc = 0;
   
@@ -331,8 +347,32 @@ scheduler(void)
     // Enable interrupts on this processor.
     sti();
 
-    // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+#ifdef SJF
+    // Shortest Job First: of all RUNNABLE processes, run the one with the
+    // smallest predicted job length (ties go to the lowest table slot).
+    // trap.c does not preempt on timer ticks in this mode, so the chosen
+    // process keeps the CPU until it sleeps or exits.
+    best = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->state != RUNNABLE)
+        continue;
+      if(best == 0 || p->job_len < best->job_len)
+        best = p;
+    }
+    if(best != 0){
+      p = best;
+      c->proc = p;
+      switchuvm(p);
+      p->state = RUNNING;
+
+      swtch(&(c->scheduler), p->context);
+      switchkvm();
+
+      c->proc = 0;
+    }
+#else
+    // Default xv6 scheduler: loop over process table looking for process to run.
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
@@ -351,6 +391,7 @@ scheduler(void)
       // It should have changed its p->state before coming back.
       c->proc = 0;
     }
+#endif
     release(&ptable.lock);
 
   }
@@ -515,6 +556,25 @@ procticks(int pid)
   }
   release(&ptable.lock);
   return t;
+}
+
+// Return the predicted job length of process pid, or -1 if there is no such
+// process or it is not in the scheduling queue (RUNNABLE or RUNNING).
+int
+procjoblen(int pid)
+{
+  struct proc *p;
+  int len = -1;
+
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == pid && (p->state == RUNNABLE || p->state == RUNNING)){
+      len = p->job_len;
+      break;
+    }
+  }
+  release(&ptable.lock);
+  return len;
 }
 
 // Print a process listing to console.  For debugging.

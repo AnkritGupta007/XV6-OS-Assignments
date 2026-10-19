@@ -108,3 +108,13 @@ sys_ticks_running(void)
     return -1;
   return procticks(pid);
 }
+
+int
+sys_sjf_job_length(void)
+{
+  int pid;
+
+  if(argint(0, &pid) < 0)
+    return -1;
+  return procjoblen(pid);
+}

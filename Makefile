@@ -96,6 +96,26 @@ xv6.img: bootblock kernel
 	dd if=bootblock of=xv6.img conv=notrunc
 	dd if=kernel of=xv6.img seek=1 conv=notrunc
 
+# ---- Scheduler selection ----------------------------------------------------
+# Pick the scheduler when you build:
+#     make qemu-nox SCHEDULER=DEFAULT      (the original xv6 scheduler; default)
+#     make qemu-nox SCHEDULER=SJF          (Shortest Job First)
+# The name reaches the compiler as -D<name>, which proc.c and trap.c test.
+SCHEDULER ?= DEFAULT
+SCHED := $(strip $(subst ],,$(subst [,,$(SCHEDULER))))
+ifneq ($(filter $(SCHED),DEFAULT SJF),$(SCHED))
+$(error Unknown SCHEDULER "$(SCHEDULER)": use DEFAULT or SJF)
+endif
+CFLAGS += -D$(SCHED)
+
+# make cannot see that CFLAGS changed, so remember which scheduler the objects
+# were built for and rebuild the ones that depend on it when it changes.
+SCHED_STAMP := .sched_$(SCHED)
+$(SCHED_STAMP):
+	@rm -f .sched_*
+	@touch $@
+proc.o trap.o: $(SCHED_STAMP)
+
 xv6memfs.img: bootblock kernelmemfs
 	dd if=/dev/zero of=xv6memfs.img count=10000
 	dd if=bootblock of=xv6memfs.img conv=notrunc
@@ -186,6 +206,8 @@ UPROGS=\
 	_sleep\
 	_sort\
 	_tickstest\
+	_sjftest\
+	_timeit\
 
 TESTFILES=os611.txt nums.txt
 
@@ -199,7 +221,7 @@ clean:
 	*.o *.d *.asm *.sym vectors.S bootblock entryother \
 	initcode initcode.out kernel xv6.img fs.img kernelmemfs \
 	xv6memfs.img mkfs .gdbinit \
-	$(UPROGS)
+	$(UPROGS) .sched_*
 
 # make a printout
 FILES = $(shell grep -v '^\#' runoff.list)

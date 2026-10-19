@@ -11,4 +11,9 @@
 #define LOGSIZE      (MAXOPBLOCKS*3)  // max data blocks in on-disk log
 #define NBUF         (MAXOPBLOCKS*3)  // size of disk block cache
 #define FSSIZE       1000  // size of file system in blocks
+#define SJF_MINLEN      1  // shortest predicted job length (in ticks) the SJF scheduler hands out
+#define SJF_MAXLEN    100  // longest predicted job length (in ticks)
+#define SJF_SEED    12345  // starting seed of the predicted-length generator
+#define SJF_LCG_A 1664525  // linear congruential generator multiplier
+#define SJF_LCG_C 1013904223  // linear congruential generator increment
 

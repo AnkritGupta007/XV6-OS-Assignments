@@ -25,6 +25,7 @@ int sleep(int);
 int uptime(void);
 int hello(void);
 int ticks_running(int);
+int sjf_job_length(int);
 
 // ulib.c
 int stat(const char*, struct stat*);

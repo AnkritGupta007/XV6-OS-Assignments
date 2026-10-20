@@ -23,3 +23,5 @@
 #define SYS_hello  22
 #define SYS_ticks_running 23
 #define SYS_sjf_job_length 24
+#define SYS_set_sched_priority 25
+#define SYS_get_sched_priority 26

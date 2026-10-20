@@ -107,7 +107,15 @@ trap(struct trapframe *tf)
   // If interrupts were on while locks held, would need to check nlock.
   // SJF is non-preemptive, so it skips this: a process keeps the CPU until
   // it sleeps or exits.
-#ifndef SJF
+#if defined(SJF)
+  // (no preemption)
+#elif defined(PRIORITYRR)
+  // PRIORITYRR preempts when the quantum is used up or a higher-priority
+  // process is waiting.
+  if(myproc() && myproc()->state == RUNNING &&
+     tf->trapno == T_IRQ0+IRQ_TIMER && sched_should_yield())
+    yield();
+#else
   if(myproc() && myproc()->state == RUNNING &&
      tf->trapno == T_IRQ0+IRQ_TIMER)
     yield();

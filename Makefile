@@ -100,17 +100,24 @@ xv6.img: bootblock kernel
 # Pick the scheduler when you build:
 #     make qemu-nox SCHEDULER=DEFAULT      (the original xv6 scheduler; default)
 #     make qemu-nox SCHEDULER=SJF          (Shortest Job First)
+#     make qemu-nox SCHEDULER=PRIORITYRR   (multi-level priority + round robin)
+# Brackets are accepted too, e.g. SCHEDULER=[SJF].  PRIORITYRR also takes the
+# round-robin time slice in timer ticks:  make qemu-nox SCHEDULER=PRIORITYRR QUANTUM=10
 # The name reaches the compiler as -D<name>, which proc.c and trap.c test.
 SCHEDULER ?= DEFAULT
+QUANTUM ?= 5
 SCHED := $(strip $(subst ],,$(subst [,,$(SCHEDULER))))
-ifneq ($(filter $(SCHED),DEFAULT SJF),$(SCHED))
-$(error Unknown SCHEDULER "$(SCHEDULER)": use DEFAULT or SJF)
+ifneq ($(filter $(SCHED),DEFAULT SJF PRIORITYRR),$(SCHED))
+$(error Unknown SCHEDULER "$(SCHEDULER)": use DEFAULT, SJF or PRIORITYRR)
 endif
-CFLAGS += -D$(SCHED)
+ifneq ($(shell test "$(QUANTUM)" -ge 1 2>/dev/null && echo ok),ok)
+$(error QUANTUM must be a whole number of ticks >= 1)
+endif
+CFLAGS += -D$(SCHED) -DRR_QUANTUM=$(QUANTUM)
 
 # make cannot see that CFLAGS changed, so remember which scheduler the objects
 # were built for and rebuild the ones that depend on it when it changes.
-SCHED_STAMP := .sched_$(SCHED)
+SCHED_STAMP := .sched_$(SCHED)_q$(QUANTUM)
 $(SCHED_STAMP):
 	@rm -f .sched_*
 	@touch $@
@@ -208,6 +215,7 @@ UPROGS=\
 	_tickstest\
 	_sjftest\
 	_timeit\
+	_priotest\
 
 TESTFILES=os611.txt nums.txt
 

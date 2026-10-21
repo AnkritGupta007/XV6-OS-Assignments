@@ -54,6 +54,9 @@ trap(struct trapframe *tf)
       wakeup(&ticks);
       release(&tickslock);
     }
+    // Charge this tick to the process that was running, if any.
+    if(myproc() && myproc()->state == RUNNING)
+      myproc()->run_ticks++;
     lapiceoi();
     break;
   case T_IRQ0 + IRQ_IDE:
@@ -102,9 +105,21 @@ trap(struct trapframe *tf)
 
   // Force process to give up CPU on clock tick.
   // If interrupts were on while locks held, would need to check nlock.
+  // SJF is non-preemptive, so it skips this: a process keeps the CPU until
+  // it sleeps or exits.
+#if defined(SJF)
+  // (no preemption)
+#elif defined(PRIORITYRR)
+  // PRIORITYRR preempts when the quantum is used up or a higher-priority
+  // process is waiting.
+  if(myproc() && myproc()->state == RUNNING &&
+     tf->trapno == T_IRQ0+IRQ_TIMER && sched_should_yield())
+    yield();
+#else
   if(myproc() && myproc()->state == RUNNING &&
      tf->trapno == T_IRQ0+IRQ_TIMER)
     yield();
+#endif
 
   // Check if the process has been killed since we yielded
   if(myproc() && myproc()->killed && (tf->cs&3) == DPL_USER)

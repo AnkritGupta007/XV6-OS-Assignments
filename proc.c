@@ -20,6 +20,25 @@ extern void trapret(void);
 
 static void wakeup1(void *chan);
 
+// PRIORITYRR: the table slot that ran last at each priority level, so the
+// next pass at that level starts just after it (round robin).  Protected by
+// ptable.lock.
+#ifdef PRIORITYRR
+static int rr_last[PRIORITY_LEVELS];
+#endif
+
+// Predicted job lengths for the SJF scheduler come from a simple linear
+// congruential generator, so they vary from process to process but are
+// repeatable from boot to boot.  Callers hold ptable.lock.
+static uint sjf_seed = SJF_SEED;
+
+static int
+next_job_len(void)
+{
+  sjf_seed = sjf_seed * SJF_LCG_A + SJF_LCG_C;
+  return SJF_MINLEN + (sjf_seed >> 16) % (SJF_MAXLEN - SJF_MINLEN + 1);
+}
+
 void
 pinit(void)
 {
@@ -88,6 +107,10 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  p->run_ticks = 0;
+  p->job_len = next_job_len();
+  p->priority = PRIORITY_DEFAULT;
+  p->quantum_used = 0;
 
   release(&ptable.lock);
 
@@ -198,6 +221,7 @@ fork(void)
   }
   np->sz = curproc->sz;
   np->parent = curproc;
+  np->priority = curproc->priority;   // a child starts at its parent's priority
   *np->tf = *curproc->tf;
 
   // Clear %eax so that fork returns 0 in the child.
@@ -323,6 +347,11 @@ void
 scheduler(void)
 {
   struct proc *p;
+#if defined(SJF)
+  struct proc *best;
+#elif defined(PRIORITYRR)
+  int level, i, slot;
+#endif
   struct cpu *c = mycpu();
   c->proc = 0;
   
@@ -330,8 +359,61 @@ scheduler(void)
     // Enable interrupts on this processor.
     sti();
 
-    // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+#if defined(SJF)
+    // Shortest Job First: of all RUNNABLE processes, run the one with the
+    // smallest predicted job length (ties go to the lowest table slot).
+    // trap.c does not preempt on timer ticks in this mode, so the chosen
+    // process keeps the CPU until it sleeps or exits.
+    best = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->state != RUNNABLE)
+        continue;
+      if(best == 0 || p->job_len < best->job_len)
+        best = p;
+    }
+    if(best != 0){
+      p = best;
+      c->proc = p;
+      switchuvm(p);
+      p->state = RUNNING;
+
+      swtch(&(c->scheduler), p->context);
+      switchkvm();
+
+      c->proc = 0;
+    }
+#elif defined(PRIORITYRR)
+    // Multi-level priority with round robin inside each level.  Take the
+    // highest non-empty level (0 is highest) and, within it, the next
+    // RUNNABLE process after the one that ran last at that level.
+    // trap.c preempts on a timer tick when the quantum is used up or a
+    // higher-priority process has become RUNNABLE.
+    p = 0;
+    for(level = 0; level < PRIORITY_LEVELS && p == 0; level++){
+      for(i = 1; i <= NPROC; i++){
+        slot = (rr_last[level] + i) % NPROC;
+        if(ptable.proc[slot].state == RUNNABLE &&
+           ptable.proc[slot].priority == level){
+          p = &ptable.proc[slot];
+          rr_last[level] = slot;
+          break;
+        }
+      }
+    }
+    if(p != 0){
+      p->quantum_used = 0;
+      c->proc = p;
+      switchuvm(p);
+      p->state = RUNNING;
+
+      swtch(&(c->scheduler), p->context);
+      switchkvm();
+
+      c->proc = 0;
+    }
+#else
+    // Default xv6 scheduler: loop over process table looking for process to run.
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
@@ -350,6 +432,7 @@ scheduler(void)
       // It should have changed its p->state before coming back.
       c->proc = 0;
     }
+#endif
     release(&ptable.lock);
 
   }
@@ -497,6 +580,97 @@ kill(int pid)
 }
 
 //PAGEBREAK: 36
+// Return the number of timer ticks process pid has spent RUNNING,
+// or -1 if no process with that pid is in the process table.
+int
+procticks(int pid)
+{
+  struct proc *p;
+  int t = -1;
+
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->state != UNUSED && p->pid == pid){
+      t = p->run_ticks;
+      break;
+    }
+  }
+  release(&ptable.lock);
+  return t;
+}
+
+// Return the predicted job length of process pid, or -1 if there is no such
+// process or it is not in the scheduling queue (RUNNABLE or RUNNING).
+int
+procjoblen(int pid)
+{
+  struct proc *p;
+  int len = -1;
+
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == pid && (p->state == RUNNABLE || p->state == RUNNING)){
+      len = p->job_len;
+      break;
+    }
+  }
+  release(&ptable.lock);
+  return len;
+}
+
+// Called from the timer interrupt (PRIORITYRR).  Charges this tick to the
+// running process and says whether it should give up the CPU now: its time
+// quantum is used up, or a process with a higher priority is waiting.
+int
+sched_should_yield(void)
+{
+  struct proc *p, *cur = myproc();
+  int yield_now = 0;
+
+  acquire(&ptable.lock);
+  cur->quantum_used++;
+  if(cur->quantum_used >= RR_QUANTUM)
+    yield_now = 1;
+  for(p = ptable.proc; p < &ptable.proc[NPROC] && !yield_now; p++){
+    if(p->state == RUNNABLE && p->priority < cur->priority)
+      yield_now = 1;
+  }
+  release(&ptable.lock);
+  return yield_now;
+}
+
+// Set the priority of the calling process.  Returns 0, or -1 if the level is
+// outside 0 .. PRIORITY_LEVELS-1.
+int
+setprio(int prio)
+{
+  if(prio < 0 || prio >= PRIORITY_LEVELS)
+    return -1;
+  acquire(&ptable.lock);
+  myproc()->priority = prio;
+  release(&ptable.lock);
+  return 0;
+}
+
+// Return the priority of process pid, or -1 if there is no such process or it
+// is not in the scheduling queue (RUNNABLE or RUNNING).
+int
+getprio(int pid)
+{
+  struct proc *p;
+  int prio = -1;
+
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == pid && (p->state == RUNNABLE || p->state == RUNNING)){
+      prio = p->priority;
+      break;
+    }
+  }
+  release(&ptable.lock);
+  return prio;
+}
+
 // Print a process listing to console.  For debugging.
 // Runs when user types ^P on console.
 // No lock to avoid wedging a stuck machine further.

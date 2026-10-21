@@ -96,6 +96,33 @@ xv6.img: bootblock kernel
 	dd if=bootblock of=xv6.img conv=notrunc
 	dd if=kernel of=xv6.img seek=1 conv=notrunc
 
+# ---- Scheduler selection ----------------------------------------------------
+# Pick the scheduler when you build:
+#     make qemu-nox SCHEDULER=DEFAULT      (the original xv6 scheduler; default)
+#     make qemu-nox SCHEDULER=SJF          (Shortest Job First)
+#     make qemu-nox SCHEDULER=PRIORITYRR   (multi-level priority + round robin)
+# Brackets are accepted too, e.g. SCHEDULER=[SJF].  PRIORITYRR also takes the
+# round-robin time slice in timer ticks:  make qemu-nox SCHEDULER=PRIORITYRR QUANTUM=10
+# The name reaches the compiler as -D<name>, which proc.c and trap.c test.
+SCHEDULER ?= DEFAULT
+QUANTUM ?= 5
+SCHED := $(strip $(subst ],,$(subst [,,$(SCHEDULER))))
+ifneq ($(filter $(SCHED),DEFAULT SJF PRIORITYRR),$(SCHED))
+$(error Unknown SCHEDULER "$(SCHEDULER)": use DEFAULT, SJF or PRIORITYRR)
+endif
+ifneq ($(shell test "$(QUANTUM)" -ge 1 2>/dev/null && echo ok),ok)
+$(error QUANTUM must be a whole number of ticks >= 1)
+endif
+CFLAGS += -D$(SCHED) -DRR_QUANTUM=$(QUANTUM)
+
+# make cannot see that CFLAGS changed, so remember which scheduler the objects
+# were built for and rebuild the ones that depend on it when it changes.
+SCHED_STAMP := .sched_$(SCHED)_q$(QUANTUM)
+$(SCHED_STAMP):
+	@rm -f .sched_*
+	@touch $@
+proc.o trap.o: $(SCHED_STAMP)
+
 xv6memfs.img: bootblock kernelmemfs
 	dd if=/dev/zero of=xv6memfs.img count=10000
 	dd if=bootblock of=xv6memfs.img conv=notrunc
@@ -184,9 +211,16 @@ UPROGS=\
 	_zombie\
         _hello\
 	_sleep\
+	_sort\
+	_tickstest\
+	_sjftest\
+	_timeit\
+	_priotest\
 
-fs.img: mkfs README $(UPROGS)
-	./mkfs fs.img README $(UPROGS)
+TESTFILES=os611.txt nums.txt
+
+fs.img: mkfs README $(TESTFILES) $(UPROGS)
+	./mkfs fs.img README $(TESTFILES) $(UPROGS)
 
 -include *.d
 
@@ -195,7 +229,7 @@ clean:
 	*.o *.d *.asm *.sym vectors.S bootblock entryother \
 	initcode initcode.out kernel xv6.img fs.img kernelmemfs \
 	xv6memfs.img mkfs .gdbinit \
-	$(UPROGS)
+	$(UPROGS) .sched_*
 
 # make a printout
 FILES = $(shell grep -v '^\#' runoff.list)

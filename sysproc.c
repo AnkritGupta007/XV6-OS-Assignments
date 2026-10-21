@@ -98,3 +98,43 @@ sys_hello(void)
   cprintf("Hello from the kernel!\n");
   return 0;
 }
+
+int
+sys_ticks_running(void)
+{
+  int pid;
+
+  if(argint(0, &pid) < 0)
+    return -1;
+  return procticks(pid);
+}
+
+int
+sys_sjf_job_length(void)
+{
+  int pid;
+
+  if(argint(0, &pid) < 0)
+    return -1;
+  return procjoblen(pid);
+}
+
+int
+sys_set_sched_priority(void)
+{
+  int prio;
+
+  if(argint(0, &prio) < 0)
+    return -1;
+  return setprio(prio);
+}
+
+int
+sys_get_sched_priority(void)
+{
+  int pid;
+
+  if(argint(0, &pid) < 0)
+    return -1;
+  return getprio(pid);
+}
